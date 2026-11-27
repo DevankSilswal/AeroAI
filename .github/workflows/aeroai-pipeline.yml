@@ -1,0 +1,83 @@
+name: AeroAI Automated Pipeline
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/aeroai-pipeline.yml"
+      - "src/**"
+      - "requirements.txt"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aeroai-pipeline-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  run-aeroai:
+    name: Collect, process, monitor and forecast
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    env:
+      OPENAQ_API_KEY: ${{ secrets.OPENAQ_API_KEY }}
+      XKDR_API_KEY: ${{ secrets.XKDR_API_KEY }}
+      PYTHONUNBUFFERED: "1"
+
+    steps:
+      - name: Checkout AeroAI
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: |
+            requirements.txt
+            pyproject.toml
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          else
+            pip install pandas numpy requests scikit-learn xgboost python-dotenv joblib scipy mlflow streamlit plotly matplotlib
+          fi
+
+      - name: Restore AeroAI runtime data
+        uses: actions/cache@v4
+        with:
+          path: |
+            data/raw
+            data/processed
+            data/monitoring
+            models
+          key: aeroai-state-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            aeroai-state-${{ runner.os }}-
+
+      - name: Run AeroAI pipeline
+        id: pipeline
+        shell: bash
+        run: |
+          mkdir -p data/monitoring logs
+          python src/run_pipeline.py
+
+      - name: Upload pipeline reports and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aeroai-pipeline-report-${{ github.run_number }}
+          if-no-files-found: warn
+          retention-days: 30
+          path: |
+            data/monitoring/pipeline_status.json
+            data/monitoring/*.json
+            logs/
