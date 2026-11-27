@@ -574,5 +574,167 @@ def run_pipeline():
     return exit_code
 
 
+def execution_state_path():
+    return ROOT / "data/monitoring/pipeline_execution_state.json"
+
+
+def write_execution_state(state):
+    path = execution_state_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(".tmp")
+    temporary.write_text(json.dumps(state, indent=4))
+    temporary.replace(path)
+
+
+def initialize_staged_pipeline():
+    started = datetime.now().astimezone()
+    state = {
+        "pipeline": "AeroAI staged GitHub Actions execution",
+        "started_at": started.isoformat(timespec="seconds"),
+        "stage_status": {},
+    }
+    write_execution_state(state)
+    print("AeroAI staged pipeline initialized:", state["started_at"])
+    return 0
+
+
+def execute_pipeline_stage(name):
+    path = execution_state_path()
+    if not path.exists():
+        raise RuntimeError("Pipeline state is missing. Run --init before --stage.")
+
+    state = read_json(path)
+    statuses = state.setdefault("stage_status", {})
+
+    known_names = [stage_name for stage_name, _ in STEPS]
+    if name != "Candidate Training and Validation" and name not in known_names:
+        raise ValueError(f"Unknown pipeline stage: {name}")
+
+    dependencies = STAGE_DEPENDENCIES.get(name, [])
+    blocked = [
+        dependency for dependency in dependencies
+        if statuses.get(dependency) != "SUCCESS"
+    ]
+
+    if name == "Candidate Training and Validation":
+        decision_status = statuses.get("Intelligent Retraining Decision")
+        if decision_status != "SUCCESS":
+            status = "SKIPPED_STALE_INPUT"
+            print(
+                "Candidate Training and Validation: SKIPPED_STALE_INPUT "
+                "| Intelligent Retraining Decision did not succeed."
+            )
+        else:
+            decision_report = read_json(DECISION_FILE)
+            if not decision_report:
+                status = "FAILED"
+                print("Retraining decision report is missing.")
+            else:
+                decision = decision_report.get("decision")
+                print("Retraining decision:", decision)
+                if decision == "CANDIDATE_TRAINING_ELIGIBLE":
+                    status = execute_step(
+                        "Intelligent Candidate Training and Validation",
+                        "src/intelligent_retraining.py",
+                    )
+                elif decision in {
+                    "WAIT_FOR_LABELLED_DATA",
+                    "MONITOR_AND_COLLECT_DATA",
+                }:
+                    status = "SKIPPED_CONDITIONS_NOT_MET"
+                    print(
+                        "Candidate training skipped: validation conditions "
+                        "are not satisfied. Existing champion is unchanged."
+                    )
+                else:
+                    status = "FAILED"
+                    print("Unknown retraining decision:", decision)
+    elif blocked:
+        blocked_statuses = [statuses.get(dep, "NOT_EXECUTED") for dep in blocked]
+        upstream_failure = any(
+            item in {"FAILED", "SKIPPED_UPSTREAM_FAILURE"}
+            for item in blocked_statuses
+        )
+        status = (
+            "SKIPPED_UPSTREAM_FAILURE"
+            if upstream_failure
+            else "SKIPPED_STALE_INPUT"
+        )
+        print(
+            f"{name}: {status} | Blocked by: {', '.join(blocked)}",
+            flush=True,
+        )
+    else:
+        script = dict(STEPS)[name]
+        status = execute_step(name, script)
+
+    statuses[name] = status
+    state["updated_at"] = datetime.now().astimezone().isoformat(timespec="seconds")
+    write_execution_state(state)
+    print(f"STAGE_RESULT::{name}::{status}", flush=True)
+    # Stage outcomes are captured in the report. A stale optional source must
+    # not prevent independent branches from executing in later Actions steps.
+    return 0
+
+
+def finalize_staged_pipeline():
+    path = execution_state_path()
+    if not path.exists():
+        raise RuntimeError("Pipeline state is missing; cannot finalize.")
+
+    state = read_json(path)
+    statuses = state.get("stage_status", {})
+    results = [
+        (name, statuses.get(name, "NOT_RUN"))
+        for name, _ in STEPS
+    ]
+    results.append((
+        "Candidate Training and Validation",
+        statuses.get("Candidate Training and Validation", "NOT_RUN"),
+    ))
+
+    failed = any(status == "FAILED" for _, status in results)
+    degraded = any(
+        status != "SUCCESS" and not status.startswith("SKIPPED")
+        for _, status in results
+    )
+    if failed:
+        final_status, exit_code = "FAILED", 1
+    elif degraded:
+        final_status, exit_code = "PARTIAL_SUCCESS", 2
+    else:
+        final_status, exit_code = "SUCCESS", 0
+
+    started = datetime.fromisoformat(state["started_at"])
+    save_pipeline_report(results, final_status, started)
+
+    print("\n========== AEROAI STAGED PIPELINE SUMMARY ==========")
+    for name, status in results:
+        print(f"{name}: {status}")
+    print("Pipeline result:", final_status)
+    print("Pipeline report:", PIPELINE_REPORT_FILE)
+    return exit_code
+
+
+def main():
+    import argparse
+
+    parser = argparse.ArgumentParser(description="AeroAI pipeline orchestrator")
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument("--init", action="store_true", help="Initialize staged execution")
+    group.add_argument("--stage", help="Execute one named pipeline stage")
+    group.add_argument("--finalize", action="store_true", help="Write final pipeline report")
+    args = parser.parse_args()
+
+    if args.init:
+        return initialize_staged_pipeline()
+    if args.stage:
+        return execute_pipeline_stage(args.stage)
+    if args.finalize:
+        return finalize_staged_pipeline()
+    return run_pipeline()
+
+
 if __name__ == "__main__":
-    sys.exit(run_pipeline())
+    sys.exit(main())
+
