@@ -149,6 +149,98 @@ class TestPipelineOrchestration(unittest.TestCase):
 
                 self.assertTrue(report_file.exists())
 
+    def test_stale_hourly_data_does_not_block_daily_prediction_chain(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            report_file = Path(temp_dir) / "pipeline_status.json"
+
+            def simulated_execute(name, script):
+                if name == "Hourly Data Collection":
+                    return "STALE_DATA"
+                return "SUCCESS"
+
+            with patch.object(
+                run_pipeline,
+                "PIPELINE_REPORT_FILE",
+                report_file
+            ), patch.object(
+                run_pipeline,
+                "execute_step",
+                side_effect=simulated_execute
+            ) as mock_execute:
+
+                result = run_pipeline.run_pipeline()
+
+                self.assertEqual(result, 2)
+
+                executed_stages = [
+                    call.args[0]
+                    for call in mock_execute.call_args_list
+                ]
+
+                # Daily prediction chain must continue.
+                daily_stages = [
+                    "Daily Preprocessing",
+                    "AQI Calculation",
+                    "AQI Prediction",
+                    "Daily Data Drift Detection",
+                    "Prediction Performance Monitoring",
+                ]
+
+                for stage in daily_stages:
+                    self.assertIn(stage, executed_stages)
+
+                # Hourly-dependent stages must not execute.
+                blocked_stages = [
+                    "Hourly Preprocessing",
+                    "Hourly Anomaly Detection",
+                    "Pollution Episode Aggregation",
+                    "Intelligent Retraining Decision",
+                ]
+
+                for stage in blocked_stages:
+                    self.assertNotIn(stage, executed_stages)
+
+                openaq_stages = [
+                    "OpenAQ Historical Hourly Refresh",
+                    "OpenAQ Hourly AQI Processing",
+                    "OpenAQ Hourly Anomaly Detection",
+                    "OpenAQ Pollution Episode Aggregation",
+                ]
+
+                for stage in openaq_stages:
+                    self.assertIn(stage, executed_stages)
+
+                self.assertEqual(
+                    run_pipeline.STAGE_DEPENDENCIES["AQI Calculation"],
+                    ["Daily Preprocessing"]
+                )
+
+                self.assertTrue(report_file.exists())
+
+                report = json.loads(report_file.read_text())
+
+                stage_status = {
+                    item["stage"]: item["status"]
+                    for item in report["stages"]
+                }
+
+                self.assertEqual(
+                    stage_status["Hourly Data Collection"],
+                    "STALE_DATA"
+                )
+                self.assertEqual(
+                    stage_status["AQI Prediction"],
+                    "SUCCESS"
+                )
+                self.assertEqual(
+                    stage_status["Hourly Preprocessing"],
+                    "SKIPPED_STALE_INPUT"
+                )
+                self.assertEqual(
+                    stage_status["Intelligent Retraining Decision"],
+                    "SKIPPED_STALE_INPUT"
+                )
+
     def test_pipeline_stops_after_core_stage_failure(self):
         failure = subprocess.CalledProcessError(
             returncode=1,
