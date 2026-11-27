@@ -1,0 +1,30 @@
+{
+    "best_model": "XGBoost",
+    "results": {
+        "Random Forest": {
+            "MAE": 41.235,
+            "RMSE": 56.775,
+            "R2": 0.409
+        },
+        "XGBoost": {
+            "MAE": 39.588,
+            "RMSE": 56.232,
+            "R2": 0.42
+        }
+    },
+    "features": [
+        "PM2.5",
+        "PM10",
+        "NO2",
+        "SO2",
+        "AT",
+        "RH",
+        "PM2.5_AQI",
+        "PM10_AQI",
+        "NO2_AQI",
+        "SO2_AQI"
+    ],
+    "target": "Next-day estimated AQI",
+    "training_rows": 292,
+    "testing_rows": 73
+}
