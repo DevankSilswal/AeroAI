@@ -25,6 +25,7 @@ jobs:
 
     env:
       OPENAQ_API_KEY: ${{ secrets.OPENAQ_API_KEY }}
+      AQI_API_KEY: ${{ secrets.AQI_API_KEY }}
       XKDR_API_KEY: ${{ secrets.XKDR_API_KEY }}
       PYTHONUNBUFFERED: "1"
 
