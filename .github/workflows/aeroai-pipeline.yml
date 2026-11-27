@@ -69,7 +69,19 @@ jobs:
         shell: bash
         run: |
           mkdir -p data/monitoring logs
+          set +e
           python src/run_pipeline.py
+          pipeline_exit_code=$?
+          set -e
+
+          if [ "$pipeline_exit_code" -eq 0 ]; then
+            echo "AeroAI pipeline completed successfully."
+          elif [ "$pipeline_exit_code" -eq 2 ]; then
+            echo "::warning::AeroAI pipeline completed with PARTIAL_SUCCESS. Check the stage-by-stage summary for stale or unavailable data sources."
+          else
+            echo "::error::AeroAI pipeline failed with exit code $pipeline_exit_code."
+            exit "$pipeline_exit_code"
+          fi
 
       - name: Publish stage-by-stage pipeline summary
         if: always()
