@@ -118,3 +118,104 @@ AeroAI is designed so that a problem with one data source does not unnecessarily
 For example, if the original historical source becomes stale, its dependent prediction or monitoring stages can be skipped while the independent OpenAQ monitoring workflow continues to process fresh OpenAQ observations.
 
 This allows the complete pipeline to report `PARTIAL_SUCCESS` instead of incorrectly treating every external data-source problem as a total system failure.
+
+---
+
+# Machine Learning Model Development and Validation
+
+## Purpose of Machine Learning
+
+The machine-learning component of AeroAI is used for next-day AQI forecasting. AQI calculation and AQI prediction are treated as different operations. AQI calculation applies pollutant breakpoint rules to measured observations, whereas machine learning attempts to estimate a future AQI value from historical information.
+
+## Prediction Inputs and Target
+
+The forecasting workflow uses air-quality and environmental features prepared from historical observations. The project includes pollutant concentrations, temperature, humidity and pollutant AQI-related features where applicable.
+
+The prediction target represents the next-day AQI value associated with the corresponding modelling workflow. Target provenance is retained so that a legacy estimated-AQI model is not incorrectly presented as an official CPCB AQI forecasting model.
+
+## Models Evaluated
+
+AeroAI evaluates tree-based regression models including:
+
+- Random Forest
+- XGBoost
+
+Multiple candidate models are compared instead of assuming that one algorithm will always provide the best forecast.
+
+## Evaluation Metrics
+
+Model performance is evaluated using the following regression metrics:
+
+### Mean Absolute Error (MAE)
+
+MAE represents the average absolute difference between predicted and observed AQI values. Lower MAE indicates smaller average prediction error.
+
+### Root Mean Squared Error (RMSE)
+
+RMSE also measures prediction error but gives greater weight to large individual errors. Lower RMSE is preferred.
+
+### R-squared (R2)
+
+R2 describes how much of the variation in the target is explained by the model. It is used together with error metrics rather than as the only model-selection criterion.
+
+## Persistence Baseline
+
+Experimental forecasting models are compared with a persistence baseline.
+
+The persistence baseline assumes that the next AQI value will remain similar to the most recent available AQI value. This provides a simple reference against which the usefulness of a more complex machine-learning model can be evaluated.
+
+A candidate model should demonstrate meaningful and sufficiently consistent improvement over the baseline before production promotion is considered.
+
+## Chronological Validation
+
+Air-quality forecasting is a time-dependent problem. AeroAI therefore avoids randomly mixing future observations into the training data when evaluating future predictions.
+
+Chronological validation keeps earlier observations in the training period and later observations in the evaluation period.
+
+This helps reduce information leakage and provides a more realistic estimate of how the model may behave when forecasting unseen future observations.
+
+## Walk-Forward Validation
+
+The OpenAQ experimental workflow includes expanding-window walk-forward validation.
+
+In this approach:
+
+1. The model is trained using an initial historical period.
+2. It is evaluated on a later period that was not used for training.
+3. The training window is expanded with additional historical observations.
+4. The model is evaluated again on the next future period.
+5. Performance is examined across multiple chronological folds.
+
+This approach tests whether candidate performance is reasonably consistent across different future periods rather than relying on a single train-test split.
+
+## Trend-Aware Experiment
+
+AeroAI also includes an experimental trend-aware forecasting workflow.
+
+The purpose of this experiment is to examine whether recent AQI history, lag information, short-term trends and calendar information can improve next-day forecasting compared with simpler input features.
+
+Lag features are used only when the required previous calendar observations are available. Missing historical dates are not silently treated as continuous observations.
+
+The trend-aware experiment remains an evaluation workflow and does not automatically promote a trained model.
+
+## Candidate Model Promotion
+
+Candidate training and production model promotion are separate operations.
+
+A candidate model may be trained and evaluated without replacing the active model. Promotion requires the candidate to satisfy the configured validation requirements, including comparison with a baseline and consistency across chronological evaluation periods.
+
+If these requirements are not satisfied, the candidate remains experimental and the existing champion model remains unchanged.
+
+## Model Safety
+
+AeroAI applies the following safeguards to the model lifecycle:
+
+- model targets are explicitly identified;
+- feature compatibility is checked before prediction;
+- stale observations can block current forecasting;
+- candidate models are evaluated before promotion;
+- baseline comparison is included in experimental validation;
+- chronological evaluation is preferred for time-dependent forecasting; and
+- experimental OpenAQ-derived AQI targets are not presented as official CPCB AQI.
+
+These safeguards are intended to prevent a technically successful training run from being interpreted as sufficient evidence for production deployment.
