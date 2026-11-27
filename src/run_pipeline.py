@@ -354,6 +354,7 @@ def validate_step_output(name):
 
 
 def execute_step(name, script):
+    print(f"::group::{name}", flush=True)
     print(f"\n========== {name} ==========", flush=True)
 
     try:
@@ -370,6 +371,7 @@ def execute_step(name, script):
         else:
             print(f"{name}: {status}", flush=True)
 
+        print("::endgroup::", flush=True)
         return status
 
     except subprocess.CalledProcessError as error:
@@ -379,20 +381,24 @@ def execute_step(name, script):
                 f"(exit code {error.returncode})",
                 flush=True
             )
+            print("::endgroup::", flush=True)
             return "SOURCE_UNAVAILABLE"
 
         print(
             f"{name}: FAILED (exit code {error.returncode})",
             flush=True
         )
+        print("::endgroup::", flush=True)
         return "FAILED"
 
     except Exception as error:
         if name in OPTIONAL_SOURCE_STEPS:
             print(f"{name}: SOURCE_UNAVAILABLE ({error})", flush=True)
+            print("::endgroup::", flush=True)
             return "SOURCE_UNAVAILABLE"
 
         print(f"{name}: FAILED ({error})", flush=True)
+        print("::endgroup::", flush=True)
         return "FAILED"
 
 
@@ -441,6 +447,7 @@ def run_pipeline():
         ]
 
         if blocked:
+            print(f"::group::{name}", flush=True)
             blocked_statuses = [
                 stage_status.get(dependency, "NOT_EXECUTED")
                 for dependency in blocked
@@ -462,6 +469,7 @@ def run_pipeline():
                 f"{name}: {status} | Blocked by: {', '.join(blocked)}",
                 flush=True
             )
+            print("::endgroup::", flush=True)
         else:
             status = execute_step(name, script)
 
@@ -483,6 +491,7 @@ def run_pipeline():
             "Intelligent Retraining Decision"
         )
 
+        print("::group::Conditional Candidate Training and Validation", flush=True)
         print("\\n========== CONDITIONAL RETRAINING ==========")
 
         if decision_status != "SUCCESS":
@@ -534,6 +543,7 @@ def run_pipeline():
                 print("Retraining decision processing failed:", error)
                 results.append(("Conditional Retraining", "FAILED"))
 
+    print("::endgroup::", flush=True)
     print("\\n========== AEROAI PIPELINE SUMMARY ==========")
     for name, status in results:
         print(f"{name}: {status}")
