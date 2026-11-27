@@ -84,11 +84,11 @@ jobs:
           summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
 
           if not report_path.exists():
-              message = "## AeroAI Pipeline Summary\\n\\nPipeline report was not generated. Check the **Run AeroAI pipeline** logs."
+              message = "## AeroAI Pipeline Summary\n\nPipeline report was not generated. Check the **Run AeroAI pipeline** logs."
               print(message)
               if summary_path:
                   with open(summary_path, "a", encoding="utf-8") as f:
-                      f.write(message + "\\n")
+                      f.write(message + "\n")
               raise SystemExit(0)
 
           report = json.loads(report_path.read_text(encoding="utf-8"))
@@ -119,7 +119,7 @@ jobs:
               "> SUCCESS means the stage completed and passed its output freshness/quality check. SKIPPED statuses mean an upstream dependency or required fresh input was unavailable. SOURCE_UNAVAILABLE / STALE_DATA are source-health outcomes, not successful data refreshes.",
           ])
 
-          output = "\\n".join(lines) + "\\n"
+          output = "\n".join(lines) + "\n"
           print(output)
           if summary_path:
               with open(summary_path, "a", encoding="utf-8") as f:
