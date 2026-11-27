@@ -71,6 +71,61 @@ jobs:
           mkdir -p data/monitoring logs
           python src/run_pipeline.py
 
+      - name: Publish stage-by-stage pipeline summary
+        if: always()
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          report_path = Path("data/monitoring/pipeline_status.json")
+          summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+
+          if not report_path.exists():
+              message = "## AeroAI Pipeline Summary\\n\\nPipeline report was not generated. Check the **Run AeroAI pipeline** logs."
+              print(message)
+              if summary_path:
+                  with open(summary_path, "a", encoding="utf-8") as f:
+                      f.write(message + "\\n")
+              raise SystemExit(0)
+
+          report = json.loads(report_path.read_text(encoding="utf-8"))
+          stages = report.get("stages", [])
+          final_status = report.get("final_status", "UNKNOWN")
+
+          lines = [
+              "# AeroAI — Pipeline Execution Summary",
+              "",
+              f"**Overall status:** `{final_status}`",
+              "",
+              f"**Started:** {report.get('started_at', 'N/A')}  ",
+              f"**Completed:** {report.get('completed_at', 'N/A')}",
+              "",
+              "| # | Pipeline stage | Result |",
+              "|---:|---|---|",
+          ]
+
+          for index, item in enumerate(stages, start=1):
+              name = str(item.get("stage", "Unknown")).replace("|", "\\|")
+              status = str(item.get("status", "UNKNOWN"))
+              lines.append(f"| {index} | {name} | `{status}` |")
+
+          lines.extend([
+              "",
+              f"**Stages reported:** {len(stages)}",
+              "",
+              "> SUCCESS means the stage completed and passed its output freshness/quality check. SKIPPED statuses mean an upstream dependency or required fresh input was unavailable. SOURCE_UNAVAILABLE / STALE_DATA are source-health outcomes, not successful data refreshes.",
+          ])
+
+          output = "\\n".join(lines) + "\\n"
+          print(output)
+          if summary_path:
+              with open(summary_path, "a", encoding="utf-8") as f:
+                  f.write(output)
+          PY
+
       - name: Upload pipeline reports and logs
         if: always()
         uses: actions/upload-artifact@v4
