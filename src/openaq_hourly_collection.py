@@ -81,11 +81,53 @@ def fetch_sensor_hours(session, sensor_id, config, start_utc, end_utc):
     while True:
         params["page"] = page
 
-        response = session.get(
-            url,
-            params=params,
-            timeout=60,
-        )
+        # Retry transient API/network failures without treating stale data as fresh.
+        response = None
+        max_attempts = 4
+        for attempt in range(1, max_attempts + 1):
+            try:
+                response = session.get(
+                    url,
+                    params=params,
+                    timeout=60,
+                )
+                if response.status_code not in {429, 500, 502, 503, 504}:
+                    response.raise_for_status()
+                    break
+
+                if attempt == max_attempts:
+                    response.raise_for_status()
+
+                retry_after = response.headers.get("Retry-After")
+                try:
+                    wait_seconds = min(float(retry_after), 30.0) if retry_after else 2 ** attempt
+                except (TypeError, ValueError):
+                    wait_seconds = 2 ** attempt
+
+                print(
+                    f"OpenAQ transient HTTP {response.status_code} for "
+                    f"sensor {sensor_id}, page {page}; "
+                    f"retry {attempt}/{max_attempts - 1} in {wait_seconds:.1f}s",
+                    flush=True,
+                )
+                time.sleep(wait_seconds)
+
+            except requests.RequestException as exc:
+                if attempt == max_attempts:
+                    raise
+                wait_seconds = min(2 ** attempt, 30)
+                print(
+                    f"OpenAQ request error for sensor {sensor_id}, page {page}: "
+                    f"{type(exc).__name__}; retry {attempt}/{max_attempts - 1} "
+                    f"in {wait_seconds}s",
+                    flush=True,
+                )
+                time.sleep(wait_seconds)
+
+        if response is None:
+            raise RuntimeError(
+                f"No response from OpenAQ for sensor {sensor_id}, page {page}"
+            )
         response.raise_for_status()
 
         payload = response.json()
