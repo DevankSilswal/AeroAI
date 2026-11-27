@@ -214,9 +214,27 @@ def main():
         result.loc[valid, "AQI_category"].value_counts().items()
     }
 
+    if not valid.any():
+        raise RuntimeError("No valid OpenAQ AQI observations available.")
+
     now = pd.Timestamp.now(tz="UTC")
+
+    valid_period_ends = pd.to_datetime(
+        result.loc[valid, "period_end"],
+        errors="coerce",
+        utc=True
+    ).dropna()
+
+    if valid_period_ends.empty:
+        raise RuntimeError(
+            "No valid measurement-end timestamps for OpenAQ AQI."
+        )
+
+    latest_valid_end = valid_period_ends.max()
     latest_end = wide["period_end"].max()
-    age_hours = (now - latest_end).total_seconds() / 3600
+
+    # Freshness is based on the end of the latest valid AQI measurement.
+    age_hours = (now - latest_valid_end).total_seconds() / 3600
 
     report = {
         "source": "OpenAQ API v3",
@@ -232,6 +250,7 @@ def main():
         "duplicate_sensor_records": duplicates,
         "first_period_end": wide["period_end"].min().isoformat(),
         "latest_period_end": latest_end.isoformat(),
+        "latest_valid_aqi_period_end": latest_valid_end.isoformat(),
         "latest_data_age_hours": round(age_hours, 2),
         "valid_aqi_hours": valid_count,
         "insufficient_aqi_hours": int(total_hours - valid_count),
